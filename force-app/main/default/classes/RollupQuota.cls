@@ -187,6 +187,5 @@ public with sharing class RollupQuota {
         }
 
         System.Debug('Total Records to Insert into Forecasting Quota Object: ' + fql.size());
-        System.Debug(fql);
     }
 }
