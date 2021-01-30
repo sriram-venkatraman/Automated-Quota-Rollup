@@ -1,8 +1,21 @@
 public with sharing class RollupQuota {
-    static final Integer MAX_ITERATIONS = 50;
+    private static final Integer MAX_ITERATIONS = 50;
+    private static Map<String, String> forecastTypes;
     
     public RollupQuota() {
-
+        if (forecastTypes == null) {
+            forecastTypes = new Map<String, String>();
+            for (ForecastingType ft : [select Id, DeveloperName
+                                       from ForecastingType
+                                       where IsActive = true
+                                       and DeveloperName in ('OpportunityRevenue',
+                                                             'OpportunityQuantity',
+                                                             'OpportunityLineItemRevenue',
+                                                             'OpportunityLineItemQuantity')]) {
+                forecastTypes.put(ft.DeveloperName, ft.Id);
+            }
+        }
+        System.Debug('Forecast Types: ' + forecastTypes);
     }
 
     // Class to store quoata details with flattened Owner Hierarchy
@@ -67,6 +80,8 @@ public with sharing class RollupQuota {
             fqs.add(fq);
         }
 
+        System.Debug('Total Raw Quotas: ' + fqs.size());
+
         Integer currentIteration = 0;
         Integer currentIdx = 0;
         Boolean parentsFound = true;
@@ -98,26 +113,80 @@ public with sharing class RollupQuota {
         Map<String, Decimal> rolledUpQuotaQuantity = new Map<String, Decimal>();
         // Now break the Owner Hierarchy in to granular user quota, group by User Id, Start Date, Product Family and
         // sum of Amount or sum of Quantity
+        // key = UserId,StartDate,ProductFamily
         for (FlattenedQuotas fq : fqs) {
             for (String o : fq.ownerHierarchy.split(';')) {
                 // Revenue Rollup
-                if (rolledUpQuotaRevenue.get(o + ',' + fq.startDate + ',' + fq.productFamily) == null) {
-                    rolledUpQuotaRevenue.put(o + ',' + fq.startDate + ',' + fq.productFamily, fq.amount);
-                }
-                else {
-                    rolledUpQuotaRevenue.put(o + ',' + fq.startDate + ',' + fq.productFamily, 
-                                            fq.amount + rolledUpQuotaRevenue.get(o + ',' + fq.startDate + ',' + fq.productFamily));
+                if (fq.amount != null) {
+                    if (rolledUpQuotaRevenue.get(o + ',' + fq.startDate + ',' + fq.productFamily) == null) {
+                        rolledUpQuotaRevenue.put(o + ',' + fq.startDate + ',' + fq.productFamily, fq.amount);
+                    }
+                    else {
+                        rolledUpQuotaRevenue.put(o + ',' + fq.startDate + ',' + fq.productFamily, 
+                                                fq.amount + rolledUpQuotaRevenue.get(o + ',' + fq.startDate + ',' + fq.productFamily));
+                    }
                 }
 
                 // Quantity Rollup
-                if (rolledUpQuotaQuantity.get(o + ',' + fq.startDate + ',' + fq.productFamily) == null) {
-                    rolledUpQuotaQuantity.put(o + ',' + fq.startDate + ',' + fq.productFamily, fq.quantity);
-                }
-                else {
-                    rolledUpQuotaQuantity.put(o + ',' + fq.startDate + ',' + fq.productFamily, 
-                                            fq.quantity + rolledUpQuotaQuantity.get(o + ',' + fq.startDate + ',' + fq.productFamily));
+                if (fq.quantity != null) {
+                    if (rolledUpQuotaQuantity.get(o + ',' + fq.startDate + ',' + fq.productFamily) == null) {
+                        rolledUpQuotaQuantity.put(o + ',' + fq.startDate + ',' + fq.productFamily, fq.quantity);
+                    }
+                    else {
+                        rolledUpQuotaQuantity.put(o + ',' + fq.startDate + ',' + fq.productFamily, 
+                                                fq.quantity + rolledUpQuotaQuantity.get(o + ',' + fq.startDate + ',' + fq.productFamily));
+                    }
                 }
             }
         }
+
+        System.Debug('Total Rolled Up Amount: ' + rolledUpQuotaRevenue.size());
+        System.Debug('Total Rolled Up Quantity: ' + rolledUpQuotaQuantity.size());
+
+        List<ForecastingQuota> fql = new List<ForecastingQuota>();
+        if (forecastTypes.get('OpportunityLineItemRevenue') != null ||
+            forecastTypes.get('OpportunityRevenue') != null) {
+            for (String k : rolledUpQuotaRevenue.keySet()) {
+                // key format = UserId,StartDate,ProductFamily
+                ForecastingQuota fq = new ForecastingQuota();
+                String[] s = k.split(',');
+                fq.QuotaOwnerId = s[0];
+                fq.StartDate = Date.valueOf(s[1]);
+                if (s[2] != 'null') {
+                    fq.ProductFamily = s[2];
+                    fq.ForecastingTypeId = forecastTypes.get('OpportunityLineItemRevenue');                    
+                }
+                else {
+                    fq.ForecastingTypeId = forecastTypes.get('OpportunityRevenue');
+
+                }
+                fq.QuotaAmount = rolledUpQuotaRevenue.get(k);
+                fql.add(fq);
+            }
+        }
+
+        if (forecastTypes.get('OpportunityLineItemQuantity') != null ||
+            forecastTypes.get('OpportunityQuantity') != null) {
+            for (String k : rolledUpQuotaQuantity.keySet()) {
+                // key format = UserId,StartDate,ProductFamily
+                ForecastingQuota fq = new ForecastingQuota();
+                String[] s = k.split(',');
+                fq.QuotaOwnerId = s[0];
+                fq.StartDate = Date.valueOf(s[1]);
+                if (s[2] != 'null') {
+                    fq.ProductFamily = s[2];
+                    fq.ForecastingTypeId = forecastTypes.get('OpportunityLineItemQuantity');                    
+                }
+                else {
+                    fq.ForecastingTypeId = forecastTypes.get('OpportunityQuantity');
+
+                }
+                fq.QuotaAmount = rolledUpQuotaQuantity.get(k);
+                fql.add(fq);
+            }
+        }
+
+        System.Debug('Total Records to Insert into Forecasting Quota Object: ' + fql.size());
+        System.Debug(fql);
     }
 }
