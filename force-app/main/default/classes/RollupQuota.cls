@@ -5,6 +5,13 @@ public with sharing class RollupQuota {
 
     }
 
+    // Class to store quoata details with flattened Owner Hierarchy
+    // Owner Hierarchy Defined: 
+    //      Quota Owner User    <----------Loop until you reach top of chain-----.
+    //          > Quota Owner User Role                                          |
+    //              > Quota Owner's Parent User Role                             |
+    //                  > Quota Owner's Parent User Role - Forecast User --------'
+    //                      (this forecast manager assigned for the role)
     class FlattenedQuotas {
         String  ownerHierarchy;
         Decimal amount;
@@ -20,6 +27,7 @@ public with sharing class RollupQuota {
                                                             from UserRole]);
 
         // Construct RoleId and it's parent's ForecastUserId
+        // Could have avoided following code if we could have had access to ParentRole.ForecastUserId
         Map<String, String> roleManagerUserMap = new Map<String, String>();
         for ( UserRole ur : urList.values() ) {
             if (ur.ParentRoleId != null) {
@@ -29,18 +37,21 @@ public with sharing class RollupQuota {
 
         Map<String, String> userManagerMap = new Map<String, String>();
 
+        // To get User and Manager User Id as defined in the Owner Hierarchy above, let's start with User & Role Id
+        // and get Role Id's associated Parent's Forecast User Id; Resultant map contains User Id & Manager Id
+        // per definition
         for (User u : [select Id, 
-                            UserRoleId
-                    from   User
-                    where  IsActive = true]){
+                              UserRoleId
+                       from   User
+                       where  IsActive = true]){
             if (u.UserRoleId != null && roleManagerUserMap.get(u.UserRoleId) != null) {
                 userManagerMap.put(u.Id, roleManagerUserMap.get(u.UserRoleId));
-                // System.Debug('User: ' + u.Id + ' | Manager: ' + roleManagerUserMap.get(u.UserRoleId));
             }
         }
 
         List<FlattenedQuotas> fqs = new List<FlattenedQuotas>();
 
+        // Get all Quota data from the Raw Quota object
         for (Raw_Quotas__c rq : [select OwnerId,
                                         Start_Date__c,
                                         Amount__c,
@@ -61,6 +72,7 @@ public with sharing class RollupQuota {
         Boolean parentsFound = true;
         Integer parentCount = 0;
         String managerId;
+        // Start flattening User-Manager hierarchy chain as Mgr0;Mgr1;Mgr2;Mgr3;User1. Mgr0 is the top of the chain;
         while (currentIteration < MAX_ITERATIONS && parentsFound) {
             if (currentIdx >= fqs.size()) {
                 currentIdx = 0;
@@ -83,8 +95,12 @@ public with sharing class RollupQuota {
         }
 
         Map<String, Decimal> rolledUpQuotaRevenue = new Map<String, Decimal>();
+        Map<String, Decimal> rolledUpQuotaQuantity = new Map<String, Decimal>();
+        // Now break the Owner Hierarchy in to granular user quota, group by User Id, Start Date, Product Family and
+        // sum of Amount or sum of Quantity
         for (FlattenedQuotas fq : fqs) {
             for (String o : fq.ownerHierarchy.split(';')) {
+                // Revenue Rollup
                 if (rolledUpQuotaRevenue.get(o + ',' + fq.startDate + ',' + fq.productFamily) == null) {
                     rolledUpQuotaRevenue.put(o + ',' + fq.startDate + ',' + fq.productFamily, fq.amount);
                 }
@@ -92,12 +108,8 @@ public with sharing class RollupQuota {
                     rolledUpQuotaRevenue.put(o + ',' + fq.startDate + ',' + fq.productFamily, 
                                             fq.amount + rolledUpQuotaRevenue.get(o + ',' + fq.startDate + ',' + fq.productFamily));
                 }
-            }
-        }
 
-        Map<String, Decimal> rolledUpQuotaQuantity = new Map<String, Decimal>();
-        for (FlattenedQuotas fq : fqs) {
-            for (String o : fq.ownerHierarchy.split(';')) {
+                // Quantity Rollup
                 if (rolledUpQuotaQuantity.get(o + ',' + fq.startDate + ',' + fq.productFamily) == null) {
                     rolledUpQuotaQuantity.put(o + ',' + fq.startDate + ',' + fq.productFamily, fq.quantity);
                 }
