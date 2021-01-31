@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Cant_Populate_Both_Quantity_Amount</fullName>
+    <active>false</active>
+    <errorConditionFormula>Quantity__c != null  &amp;&amp; Amount__c != null</errorConditionFormula>
+    <errorMessage>Can&apos;t Populate Both Quantity &amp; Amount</errorMessage>
+</ValidationRule>
