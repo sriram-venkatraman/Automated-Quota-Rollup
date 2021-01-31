@@ -1,21 +1,12 @@
-public with sharing class RollupQuota {
+public class RollupQuota implements Queueable {
     private static final Integer MAX_ITERATIONS = 50;
-    private static Map<String, String> forecastTypes;
+    private static final Integer MAX_DML_ROWS = 10000;
     
+    // Run using this command:
+    // ID jobID = System.enqueueJob(new RollupQuota());
+    // System.Debug('Job: ' + jobID);
+
     public RollupQuota() {
-        if (forecastTypes == null) {
-            forecastTypes = new Map<String, String>();
-            for (ForecastingType ft : [select Id, DeveloperName
-                                       from ForecastingType
-                                       where IsActive = true
-                                       and DeveloperName in ('OpportunityRevenue',
-                                                             'OpportunityQuantity',
-                                                             'OpportunityLineItemRevenue',
-                                                             'OpportunityLineItemQuantity')]) {
-                forecastTypes.put(ft.DeveloperName, ft.Id);
-            }
-        }
-        System.Debug('Forecast Types: ' + forecastTypes);
     }
 
     // Class to store quoata details with flattened Owner Hierarchy
@@ -33,7 +24,19 @@ public with sharing class RollupQuota {
         Date    startDate;
     }
 
-    public void doRollup() {
+    public void execute(QueueableContext context) {
+        Map<String, String> forecastTypes = new Map<String, String>();
+        for (ForecastingType ft : [select Id, DeveloperName
+                                       from ForecastingType
+                                       where IsActive = true
+                                       and DeveloperName in ('OpportunityRevenue',
+                                                             'OpportunityQuantity',
+                                                             'OpportunityLineItemRevenue',
+                                                             'OpportunityLineItemQuantity')]) {
+            forecastTypes.put(ft.DeveloperName, ft.Id);
+        }
+        System.Debug('Forecast Types: ' + forecastTypes);
+
         Map<Id, UserRole> urList = new Map<Id, UserRole>([select Id,
                                                                  ParentRoleId,
                                                                  ForecastUserId
@@ -143,7 +146,15 @@ public with sharing class RollupQuota {
         System.Debug('Total Rolled Up Amount: ' + rolledUpQuotaRevenue.size());
         System.Debug('Total Rolled Up Quantity: ' + rolledUpQuotaQuantity.size());
 
-        List<ForecastingQuota> fql = new List<ForecastingQuota>();
+        Map<String, Id> fqXref = new Map<String, Id>();
+        for (ForecastingQuota fq : [select QuotaOwnerId, StartDate, ForecastingTypeId, ProductFamily, Id from ForecastingQuota]) {
+            fqXref.put(fq.QuotaOwnerId + '-' + fq.StartDate + '-' + 
+                       fq.ForecastingTypeId + '-' + fq.ProductFamily, fq.Id);
+        }
+
+        List<ForecastingQuota> fqs2Delete = new List<ForecastingQuota>();
+
+        List<ForecastingQuota> fqs2Insert = new List<ForecastingQuota>();
         if (forecastTypes.get('OpportunityLineItemRevenue') != null ||
             forecastTypes.get('OpportunityRevenue') != null) {
             for (String k : rolledUpQuotaRevenue.keySet()) {
@@ -161,7 +172,12 @@ public with sharing class RollupQuota {
 
                 }
                 fq.QuotaAmount = rolledUpQuotaRevenue.get(k);
-                fql.add(fq);
+                fqs2Insert.add(fq);
+
+                if (fqXref.get(fq.QuotaOwnerId + '-' + fq.StartDate + '-' + fq.ForecastingTypeId + '-' + fq.ProductFamily) != null) {
+                    fqs2Delete.add(new ForecastingQuota(Id=fqXref.get(fq.QuotaOwnerId + '-' + fq.StartDate + '-' + 
+                                                                    fq.ForecastingTypeId + '-' + fq.ProductFamily)));
+                }
             }
         }
 
@@ -182,10 +198,50 @@ public with sharing class RollupQuota {
 
                 }
                 fq.QuotaAmount = rolledUpQuotaQuantity.get(k);
-                fql.add(fq);
+                fqs2Insert.add(fq);
+
+                if (fqXref.get(fq.QuotaOwnerId + '-' + fq.StartDate + '-' + fq.ForecastingTypeId + '-' + fq.ProductFamily) != null) {
+                    fqs2Delete.add(new ForecastingQuota(Id=fqXref.get(fq.QuotaOwnerId + '-' + fq.StartDate + '-' + 
+                                                                    fq.ForecastingTypeId + '-' + fq.ProductFamily)));
+                }
             }
         }
 
-        System.Debug('Total Records to Insert into Forecasting Quota Object: ' + fql.size());
+        System.Debug('Total Records to Insert into Forecasting Quota Object: ' + fqs2Insert.size());
+        System.Debug('Total Records to Delete from Forecasting Quota Object: ' + fqs2Delete.size());
+
+        List<ForecastingQuota> q = new List<ForecastingQuota>();
+        if (fqs2Delete.size() > 0) {
+            for (Integer i = 0; i < fqs2Delete.size(); i++) {
+                q.add(fqs2Delete[i]);
+                if (math.mod(i, MAX_DML_ROWS) == 0 || i == fqs2Delete.size()-1) {
+                    asyncDelete(JSON.serialize(q));
+                    q = new List<ForecastingQuota>();
+                }
+            }
+        }
+
+        q = new List<ForecastingQuota>();
+        if (fqs2Insert.size() > 0) {
+            for (Integer i = 0; i < fqs2Insert.size(); i++) {
+                q.add(fqs2Insert[i]);
+                if (math.mod(i, MAX_DML_ROWS) == 0 || i == fqs2Insert.size()-1) {
+                    asyncInsert(JSON.serialize(q));
+                    q = new List<ForecastingQuota>();
+                }
+            }
+        }
     }
+
+    @future
+    public static void asyncDelete(String json2Delete) {
+        List<ForecastingQuota> q = (List<ForecastingQuota>) JSON.deserialize(json2Delete, List<ForecastingQuota>.class);
+        delete q;
+    } 
+
+    @future
+    public static void asyncInsert(String json2Insert) {
+        List<ForecastingQuota> q = (List<ForecastingQuota>) JSON.deserialize(json2Insert, List<ForecastingQuota>.class);
+        insert q;
+    } 
 }
