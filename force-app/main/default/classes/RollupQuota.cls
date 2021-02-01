@@ -25,14 +25,14 @@ public class RollupQuota implements Queueable {
     }
 
     public void execute(QueueableContext context) {
+        doRollup();
+    }
+
+    public void doRollup() {
         Map<String, String> forecastTypes = new Map<String, String>();
         for (ForecastingType ft : [select Id, DeveloperName
-                                       from ForecastingType
-                                       where IsActive = true
-                                       and DeveloperName in ('OpportunityRevenue',
-                                                             'OpportunityQuantity',
-                                                             'OpportunityLineItemRevenue',
-                                                             'OpportunityLineItemQuantity')]) {
+                                    from ForecastingType
+                                    where IsActive = true]) {
             forecastTypes.put(ft.DeveloperName, ft.Id);
         }
         System.Debug('Forecast Types: ' + forecastTypes);
@@ -73,7 +73,8 @@ public class RollupQuota implements Queueable {
                                         Amount__c,
                                         Quantity__c,
                                         Product_Family__c
-                                from	Raw_Quotas__c]) {
+                                from	Raw_Quotas__c
+                                where   Is_Active__c = true]) {
             FlattenedQuotas fq = new FlattenedQuotas();
             fq.ownerHierarchy = rq.OwnerId;
             fq.startDate = rq.Start_Date__c;
@@ -181,7 +182,7 @@ public class RollupQuota implements Queueable {
             }
         }
 
-        if (forecastTypes.get('OpportunityLineItemQuantity') != null ||
+        if (forecastTypes.get('LineItemQuantityProductDate') != null ||
             forecastTypes.get('OpportunityQuantity') != null) {
             for (String k : rolledUpQuotaQuantity.keySet()) {
                 // key format = UserId,StartDate,ProductFamily
@@ -191,13 +192,13 @@ public class RollupQuota implements Queueable {
                 fq.StartDate = Date.valueOf(s[1]);
                 if (s[2] != 'null') {
                     fq.ProductFamily = s[2];
-                    fq.ForecastingTypeId = forecastTypes.get('OpportunityLineItemQuantity');                    
+                    fq.ForecastingTypeId = forecastTypes.get('LineItemQuantityProductDate');                    
                 }
                 else {
                     fq.ForecastingTypeId = forecastTypes.get('OpportunityQuantity');
 
                 }
-                fq.QuotaAmount = rolledUpQuotaQuantity.get(k);
+                fq.QuotaQuantity = rolledUpQuotaQuantity.get(k);
                 fqs2Insert.add(fq);
 
                 if (fqXref.get(fq.QuotaOwnerId + '-' + fq.StartDate + '-' + fq.ForecastingTypeId + '-' + fq.ProductFamily) != null) {
@@ -214,7 +215,7 @@ public class RollupQuota implements Queueable {
         if (fqs2Delete.size() > 0) {
             for (Integer i = 0; i < fqs2Delete.size(); i++) {
                 q.add(fqs2Delete[i]);
-                if (math.mod(i, MAX_DML_ROWS) == 0 || i == fqs2Delete.size()-1) {
+                if (math.mod(i+1, MAX_DML_ROWS) == 0 || i == fqs2Delete.size()-1) {
                     asyncDelete(JSON.serialize(q));
                     q = new List<ForecastingQuota>();
                 }
@@ -225,7 +226,7 @@ public class RollupQuota implements Queueable {
         if (fqs2Insert.size() > 0) {
             for (Integer i = 0; i < fqs2Insert.size(); i++) {
                 q.add(fqs2Insert[i]);
-                if (math.mod(i, MAX_DML_ROWS) == 0 || i == fqs2Insert.size()-1) {
+                if (math.mod(i+1, MAX_DML_ROWS) == 0 || i == fqs2Insert.size()-1) {
                     asyncInsert(JSON.serialize(q));
                     q = new List<ForecastingQuota>();
                 }

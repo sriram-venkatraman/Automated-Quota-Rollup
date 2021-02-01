@@ -148,7 +148,7 @@
     </actionOverrides>
     <allowInChatterGroups>false</allowInChatterGroups>
     <compactLayoutAssignment>SYSTEM</compactLayoutAssignment>
-    <deploymentStatus>InDevelopment</deploymentStatus>
+    <deploymentStatus>Deployed</deploymentStatus>
     <enableActivities>false</enableActivities>
     <enableBulkApi>true</enableBulkApi>
     <enableFeeds>false</enableFeeds>
@@ -161,10 +161,10 @@
     <externalSharingModel>Private</externalSharingModel>
     <label>Raw Quotas</label>
     <nameField>
-        <encryptionScheme>None</encryptionScheme>
+        <displayFormat>Q-{0000000000}</displayFormat>
         <label>Raw Quotas Name</label>
         <trackHistory>false</trackHistory>
-        <type>Text</type>
+        <type>AutoNumber</type>
     </nameField>
     <pluralLabel>Raw Quotas</pluralLabel>
     <searchLayouts/>

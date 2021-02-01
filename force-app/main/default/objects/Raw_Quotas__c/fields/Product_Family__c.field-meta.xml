@@ -26,6 +26,16 @@
                 <default>false</default>
                 <label>Rural 1st</label>
             </value>
+            <value>
+                <fullName>Insurance - MPCI</fullName>
+                <default>false</default>
+                <label>Insurance - MPCI</label>
+            </value>
+            <value>
+                <fullName>Insurance - Crop Hail</fullName>
+                <default>false</default>
+                <label>Insurance - Crop Hail</label>
+            </value>
         </valueSetDefinition>
     </valueSet>
 </CustomField>

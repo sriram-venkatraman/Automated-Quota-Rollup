@@ -1,18 +1,53 @@
-# Salesforce DX Project: Next Steps
+**Deploy to Dev Org/Prod:** [![Deploy to Salesforce](https://andrewfawcett.files.wordpress.com/2014/09/deploy.png)](https://githubsfdeploy.herokuapp.com/app/githubdeploy/sriram-venkatraman/Automated-Quota-Rollup)
 
-Now that you’ve created a Salesforce DX project, what’s next? Here are some documentation resources to get you started.
+**Deploy to Sandbox:** [![Deploy to Salesforce](https://andrewfawcett.files.wordpress.com/2014/09/deploy.png)](https://githubsfdeploy-sandbox.herokuapp.com/app/githubdeploy/sriram-venkatraman/Automated-Quota-Rollup)
 
-## How Do You Plan to Deploy Your Changes?
+## Sample Execution
 
-Do you want to deploy a set of changes, or create a self-contained application? Choose a [development model](https://developer.salesforce.com/tools/vscode/en/user-guide/development-models).
+```
+ID jobID = System.enqueueJob(new RollupQuota());
+System.Debug('Job: ' + jobID);
+```
 
-## Configure Your Salesforce DX Project
+# Automated Quota Rollup
 
-The `sfdx-project.json` file contains useful configuration information for your project. See [Salesforce DX Project Configuration](https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_dev_ws_config.htm) in the _Salesforce DX Developer Guide_ for details about this file.
+_Note: Still tidying up with test classes and documentation. Functionality seems to work reasonably well although I haven't done extensive test_
 
-## Read All About It
+This framework uses a custom object called **Raw Quotas** to capture raw quotas for every forecast user. This custom is then used to roll-up Revenue & Quantity up User's Forecast Hierarchy using **RollupQuota** class. **RollupQuota** works only for Collaborative Forecasting. This class has been coded only to support the following Forecasting Types to support my current use case -
 
-- [Salesforce Extensions Documentation](https://developer.salesforce.com/tools/vscode/)
-- [Salesforce CLI Setup Guide](https://developer.salesforce.com/docs/atlas.en-us.sfdx_setup.meta/sfdx_setup/sfdx_setup_intro.htm)
-- [Salesforce DX Developer Guide](https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_dev_intro.htm)
-- [Salesforce CLI Command Reference](https://developer.salesforce.com/docs/atlas.en-us.sfdx_cli_reference.meta/sfdx_cli_reference/cli_reference.htm)
+- Opportunity Revenue
+- Opportunity Line Item Revenue
+- Line Item Quantity Product Date
+
+Owner Hierarchy built in **RollupQuota** uses the following hierarchy -
+
+```
+     Quota Owner User    <----------Loop until you reach top of chain-----.
+         > Quota Owner User Role                                          |
+             > Quota Owner's Parent User Role                             |
+                 > Quota Owner's Parent User Role - Forecast User --------'
+                     (this forecast manager assigned for the role)
+```
+
+Required fields to be populate in **Raw Quotas** custom object are -
+
+- Forecast Owner (active user)
+- Start Date of the Forecast Period
+- Forecast Amount for Revenue Forecast required (only populate either this)
+- Forecast Quantity for Quantity Forecast required (or this)
+- Product Family
+
+## Important
+
+- Class **RollupQuota** supports only Collaborative Forecasting
+- After loading **Raw Quotas** custom object, you have to execute the Queueable apex class **RollupQuota**
+- Do not rollup Revenue or Quantity on you own when loading into **Raw Quotas** custom object. The Queueable class will do the rollup and load data into **ForecastingQuota** standard object
+- Manager's can also have their own Quotas. They will be included when rolling up in addition to their subordinates' quotas
+
+## Dev, Build and Test
+
+## Resources
+
+## Description of Files and Directories
+
+## Issues
