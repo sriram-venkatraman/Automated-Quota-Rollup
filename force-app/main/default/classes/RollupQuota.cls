@@ -147,15 +147,7 @@ public class RollupQuota implements Queueable {
         System.Debug('Total Rolled Up Amount: ' + rolledUpQuotaRevenue.size());
         System.Debug('Total Rolled Up Quantity: ' + rolledUpQuotaQuantity.size());
 
-        Map<String, Id> fqXref = new Map<String, Id>();
-        for (ForecastingQuota fq : [select QuotaOwnerId, StartDate, ForecastingTypeId, ProductFamily, Id from ForecastingQuota]) {
-            fqXref.put(fq.QuotaOwnerId + '-' + fq.StartDate + '-' + 
-                       fq.ForecastingTypeId + '-' + fq.ProductFamily, fq.Id);
-        }
-
-        List<ForecastingQuota> fqs2Delete = new List<ForecastingQuota>();
-
-        List<ForecastingQuota> fqs2Insert = new List<ForecastingQuota>();
+        List<ForecastingQuota> fqs2Upsert = new List<ForecastingQuota>();
         if (forecastTypes.get('OpportunityLineItemRevenue') != null ||
             forecastTypes.get('OpportunityRevenue') != null) {
             for (String k : rolledUpQuotaRevenue.keySet()) {
@@ -173,12 +165,7 @@ public class RollupQuota implements Queueable {
 
                 }
                 fq.QuotaAmount = rolledUpQuotaRevenue.get(k);
-                fqs2Insert.add(fq);
-
-                if (fqXref.get(fq.QuotaOwnerId + '-' + fq.StartDate + '-' + fq.ForecastingTypeId + '-' + fq.ProductFamily) != null) {
-                    fqs2Delete.add(new ForecastingQuota(Id=fqXref.get(fq.QuotaOwnerId + '-' + fq.StartDate + '-' + 
-                                                                    fq.ForecastingTypeId + '-' + fq.ProductFamily)));
-                }
+                fqs2Upsert.add(fq);
             }
         }
 
@@ -199,35 +186,19 @@ public class RollupQuota implements Queueable {
 
                 }
                 fq.QuotaQuantity = rolledUpQuotaQuantity.get(k);
-                fqs2Insert.add(fq);
-
-                if (fqXref.get(fq.QuotaOwnerId + '-' + fq.StartDate + '-' + fq.ForecastingTypeId + '-' + fq.ProductFamily) != null) {
-                    fqs2Delete.add(new ForecastingQuota(Id=fqXref.get(fq.QuotaOwnerId + '-' + fq.StartDate + '-' + 
-                                                                    fq.ForecastingTypeId + '-' + fq.ProductFamily)));
-                }
+                fqs2Upsert.add(fq);
             }
         }
 
-        System.Debug('Total Records to Insert into Forecasting Quota Object: ' + fqs2Insert.size());
-        System.Debug('Total Records to Delete from Forecasting Quota Object: ' + fqs2Delete.size());
+        System.Debug('Total Records to Upsert into Forecasting Quota Object: ' + fqs2Upsert.size());
 
+        // Process Upserts in chunks using new async threads
         List<ForecastingQuota> q = new List<ForecastingQuota>();
-        if (fqs2Delete.size() > 0) {
-            for (Integer i = 0; i < fqs2Delete.size(); i++) {
-                q.add(fqs2Delete[i]);
-                if (math.mod(i+1, MAX_DML_ROWS) == 0 || i == fqs2Delete.size()-1) {
-                    asyncDelete(JSON.serialize(q));
-                    q = new List<ForecastingQuota>();
-                }
-            }
-        }
-
-        q = new List<ForecastingQuota>();
-        if (fqs2Insert.size() > 0) {
-            for (Integer i = 0; i < fqs2Insert.size(); i++) {
-                q.add(fqs2Insert[i]);
-                if (math.mod(i+1, MAX_DML_ROWS) == 0 || i == fqs2Insert.size()-1) {
-                    asyncInsert(JSON.serialize(q));
+        if (fqs2Upsert.size() > 0) {
+            for (Integer i = 0; i < fqs2Upsert.size(); i++) {
+                q.add(fqs2Upsert[i]);
+                if (math.mod(i+1, MAX_DML_ROWS) == 0 || i == fqs2Upsert.size()-1) {
+                    asyncUpsert(JSON.serialize(q));
                     q = new List<ForecastingQuota>();
                 }
             }
@@ -235,14 +206,22 @@ public class RollupQuota implements Queueable {
     }
 
     @future
-    public static void asyncDelete(String json2Delete) {
-        List<ForecastingQuota> q = (List<ForecastingQuota>) JSON.deserialize(json2Delete, List<ForecastingQuota>.class);
-        delete q;
-    } 
+    public static void asyncUpsert(String json2Upsert) {
+        Map<String, Id> fqXref = new Map<String, Id>();
+        for (ForecastingQuota fq : [select QuotaOwnerId, StartDate, ForecastingTypeId, ProductFamily, Id from ForecastingQuota]) {
+            fqXref.put(fq.QuotaOwnerId + '-' + fq.StartDate + '-' + 
+                       fq.ForecastingTypeId + '-' + fq.ProductFamily, fq.Id);
+        }
 
-    @future
-    public static void asyncInsert(String json2Insert) {
-        List<ForecastingQuota> q = (List<ForecastingQuota>) JSON.deserialize(json2Insert, List<ForecastingQuota>.class);
-        insert q;
+        List<ForecastingQuota> fqs2Upsert = (List<ForecastingQuota>) JSON.deserialize(json2Upsert, List<ForecastingQuota>.class);
+        for (ForecastingQuota fq : fqs2Upsert) {
+            if (fqXref.get(fq.QuotaOwnerId + '-' + fq.StartDate + '-' + fq.ForecastingTypeId + '-' + fq.ProductFamily) != null) {
+                fq.put('Id', fqXref.get(fq.QuotaOwnerId + '-' + fq.StartDate + '-' + 
+                                        fq.ForecastingTypeId + '-' + fq.ProductFamily));
+            }
+        }
+
+        System.Debug('Total Records to Upsert into Forecasting Quota Object: ' + fqs2Upsert.size());
+        upsert fqs2Upsert;
     } 
 }
