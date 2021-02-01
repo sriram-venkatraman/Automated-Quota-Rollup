@@ -12,29 +12,19 @@
         <valueSetDefinition>
             <sorted>false</sorted>
             <value>
-                <fullName>Lease - Equipment</fullName>
+                <fullName>Lease</fullName>
                 <default>false</default>
-                <label>Lease - Equipment</label>
+                <label>Lease</label>
             </value>
             <value>
-                <fullName>Loan - Revolving - Operating</fullName>
+                <fullName>Loan</fullName>
                 <default>false</default>
-                <label>Loan - Revolving - Operating</label>
+                <label>Loan</label>
             </value>
             <value>
-                <fullName>Rural 1st</fullName>
+                <fullName>Insurance</fullName>
                 <default>false</default>
-                <label>Rural 1st</label>
-            </value>
-            <value>
-                <fullName>Insurance - MPCI</fullName>
-                <default>false</default>
-                <label>Insurance - MPCI</label>
-            </value>
-            <value>
-                <fullName>Insurance - Crop Hail</fullName>
-                <default>false</default>
-                <label>Insurance - Crop Hail</label>
+                <label>Insurance</label>
             </value>
         </valueSetDefinition>
     </valueSet>
