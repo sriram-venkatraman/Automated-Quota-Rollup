@@ -3,7 +3,7 @@
     <fullName>Product_Family__c</fullName>
     <externalId>false</externalId>
     <label>Product Family</label>
-    <required>false</required>
+    <required>true</required>
     <trackHistory>false</trackHistory>
     <trackTrending>false</trackTrending>
     <type>Picklist</type>
@@ -22,9 +22,14 @@
                 <label>Loan</label>
             </value>
             <value>
-                <fullName>Insurance</fullName>
+                <fullName>Investment</fullName>
                 <default>false</default>
-                <label>Insurance</label>
+                <label>Investment</label>
+            </value>
+            <value>
+                <fullName>Products Not Categorized</fullName>
+                <default>true</default>
+                <label>Products Not Categorized</label>
             </value>
         </valueSetDefinition>
     </valueSet>

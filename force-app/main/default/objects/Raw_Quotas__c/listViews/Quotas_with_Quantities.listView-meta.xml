@@ -7,11 +7,15 @@
     <columns>OWNER.LAST_NAME</columns>
     <columns>Product_Family__c</columns>
     <columns>Quantity__c</columns>
-    <columns>OBJECT_ID</columns>
     <filterScope>Everything</filterScope>
     <filters>
         <field>Quantity__c</field>
         <operation>notEqual</operation>
+    </filters>
+    <filters>
+        <field>Product_Family__c</field>
+        <operation>notEqual</operation>
+        <value>Products Not Categorized</value>
     </filters>
     <label>Quotas with Quantities</label>
 </ListView>

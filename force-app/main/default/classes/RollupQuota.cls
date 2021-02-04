@@ -22,6 +22,7 @@ public class RollupQuota implements Queueable {
         Decimal quantity;
         String  productFamily;
         Date    startDate;
+        String  rawQuotasId;
     }
 
     public void execute(QueueableContext context) {
@@ -52,23 +53,27 @@ public class RollupQuota implements Queueable {
         }
 
         Map<String, String> userManagerMap = new Map<String, String>();
+        Map<String, String> userNameMap = new Map<String, String>();
 
         // To get User and Manager User Id as defined in the Owner Hierarchy above, let's start with User & Role Id
         // and get Role Id's associated Parent's Forecast User Id; Resultant map contains User Id & Manager Id
         // per definition
         for (User u : [select Id, 
-                              UserRoleId
+                              UserRoleId,
+                              Name
                        from   User
                        where  IsActive = true]){
             if (u.UserRoleId != null && roleManagerUserMap.get(u.UserRoleId) != null) {
                 userManagerMap.put(u.Id, roleManagerUserMap.get(u.UserRoleId));
             }
+            userNameMap.put(u.Id, u.Name);
         }
 
         List<FlattenedQuotas> fqs = new List<FlattenedQuotas>();
 
         // Get all Quota data from the Raw Quota object
-        for (Raw_Quotas__c rq : [select OwnerId,
+        for (Raw_Quotas__c rq : [select Id,
+                                        OwnerId,
                                         Start_Date__c,
                                         Amount__c,
                                         Quantity__c,
@@ -81,6 +86,7 @@ public class RollupQuota implements Queueable {
             fq.amount = rq.Amount__c;
             fq.quantity = rq.Quantity__c;
             fq.productFamily = rq.Product_Family__c;
+            fq.rawQuotasId = rq.Id;
             fqs.add(fq);
         }
 
@@ -91,6 +97,7 @@ public class RollupQuota implements Queueable {
         Boolean parentsFound = true;
         Integer parentCount = 0;
         String managerId;
+
         // Start flattening User-Manager hierarchy chain as Mgr0;Mgr1;Mgr2;Mgr3;User1. Mgr0 is the top of the chain;
         while (currentIteration < MAX_ITERATIONS && parentsFound) {
             if (currentIdx >= fqs.size()) {
@@ -115,33 +122,75 @@ public class RollupQuota implements Queueable {
 
         Map<String, Decimal> rolledUpQuotaRevenue = new Map<String, Decimal>();
         Map<String, Decimal> rolledUpQuotaQuantity = new Map<String, Decimal>();
+        List<Raw_Quotas__c> rqs2Update = new List<Raw_Quotas__c>();
+
         // Now break the Owner Hierarchy in to granular user quota, group by User Id, Start Date, Product Family and
         // sum of Amount or sum of Quantity
         // key = UserId,StartDate,ProductFamily
         for (FlattenedQuotas fq : fqs) {
+            Raw_Quotas__c rq = new Raw_Quotas__c(Id=fq.rawQuotasId, Owner_Hierarchy__c=null);
+            Integer indent = -1;
+
             for (String o : fq.ownerHierarchy.split(';')) {
+                // Build Owner Hierarchy to write back into Raw Quotas.. just a visualization thing
+                indent++;
+                if (indent == 0) {
+                    rq.Owner_Hierarchy__c = '<p>' + userNameMap.get(o) + '</p>';
+                }
+                else {
+                    rq.Owner_Hierarchy__c += '<p class="ql-indent-' + indent + '">⎿' + userNameMap.get(o) + '</p>';
+                }
+
                 // Revenue Rollup
                 if (fq.amount != null) {
-                    if (rolledUpQuotaRevenue.get(o + ',' + fq.startDate + ',' + fq.productFamily) == null) {
-                        rolledUpQuotaRevenue.put(o + ',' + fq.startDate + ',' + fq.productFamily, fq.amount);
-                    }
-                    else {
+                    if (forecastTypes.get('OpportunityLineItemRevenue') != null) {
+                        // Initialize Product level rollup
+                        if (rolledUpQuotaRevenue.get(o + ',' + fq.startDate + ',' + fq.productFamily) == null) {
+                            rolledUpQuotaRevenue.put(o + ',' + fq.startDate + ',' + fq.productFamily, 0);
+                        }
+                        // Product level rollup
                         rolledUpQuotaRevenue.put(o + ',' + fq.startDate + ',' + fq.productFamily, 
                                                 fq.amount + rolledUpQuotaRevenue.get(o + ',' + fq.startDate + ',' + fq.productFamily));
+                    }
+
+                    if (forecastTypes.get('OpportunityRevenue') != null) {
+                        // Initialize Opportunity level rollup
+                        if (rolledUpQuotaRevenue.get(o + ',' + fq.startDate + ',null') == null) {
+                            rolledUpQuotaRevenue.put(o + ',' + fq.startDate + ',null', 0);
+                        }
+
+                        // Opportunity level rollup
+                        rolledUpQuotaRevenue.put(o + ',' + fq.startDate + ',null', 
+                                                fq.amount + rolledUpQuotaRevenue.get(o + ',' + fq.startDate + ',null'));
                     }
                 }
 
                 // Quantity Rollup
                 if (fq.quantity != null) {
-                    if (rolledUpQuotaQuantity.get(o + ',' + fq.startDate + ',' + fq.productFamily) == null) {
-                        rolledUpQuotaQuantity.put(o + ',' + fq.startDate + ',' + fq.productFamily, fq.quantity);
-                    }
-                    else {
+                    if (forecastTypes.get('LineItemQuantityProductDate') != null) {
+                        // Initialize Product level rollup
+                        if (rolledUpQuotaQuantity.get(o + ',' + fq.startDate + ',' + fq.productFamily) == null) {
+                            rolledUpQuotaQuantity.put(o + ',' + fq.startDate + ',' + fq.productFamily, 0);
+                        }
+                        // Product level rollup
                         rolledUpQuotaQuantity.put(o + ',' + fq.startDate + ',' + fq.productFamily, 
                                                 fq.quantity + rolledUpQuotaQuantity.get(o + ',' + fq.startDate + ',' + fq.productFamily));
                     }
+
+                    if (forecastTypes.get('OpportunityQuantity') != null) {
+                        // Initialize Opportunity level rollup
+                        if (rolledUpQuotaQuantity.get(o + ',' + fq.startDate + ',null') == null) {
+                            rolledUpQuotaQuantity.put(o + ',' + fq.startDate + ',null', 0);
+                        }
+
+                        // Opportunity level rollup
+                        rolledUpQuotaQuantity.put(o + ',' + fq.startDate + ',null', 
+                                                fq.quantity + rolledUpQuotaQuantity.get(o + ',' + fq.startDate + ',null'));
+                    }
                 }
             }
+ 
+            rqs2Update.add(rq);
         }
 
         System.Debug('Total Rolled Up Amount: ' + rolledUpQuotaRevenue.size());
@@ -157,12 +206,11 @@ public class RollupQuota implements Queueable {
                 fq.QuotaOwnerId = s[0];
                 fq.StartDate = Date.valueOf(s[1]);
                 if (s[2] != 'null') {
-                    fq.ProductFamily = s[2];
+                    fq.ProductFamily = (s[2] == 'Products Not Categorized' ? null : s[2]);
                     fq.ForecastingTypeId = forecastTypes.get('OpportunityLineItemRevenue');                    
                 }
                 else {
                     fq.ForecastingTypeId = forecastTypes.get('OpportunityRevenue');
-
                 }
                 fq.QuotaAmount = rolledUpQuotaRevenue.get(k);
                 fqs2Upsert.add(fq);
@@ -178,12 +226,11 @@ public class RollupQuota implements Queueable {
                 fq.QuotaOwnerId = s[0];
                 fq.StartDate = Date.valueOf(s[1]);
                 if (s[2] != 'null') {
-                    fq.ProductFamily = s[2];
+                    fq.ProductFamily = (s[2] == 'Products Not Categorized' ? null : s[2]);
                     fq.ForecastingTypeId = forecastTypes.get('LineItemQuantityProductDate');                    
                 }
                 else {
                     fq.ForecastingTypeId = forecastTypes.get('OpportunityQuantity');
-
                 }
                 fq.QuotaQuantity = rolledUpQuotaQuantity.get(k);
                 fqs2Upsert.add(fq);
@@ -192,21 +239,29 @@ public class RollupQuota implements Queueable {
 
         System.Debug('Total Records to Upsert into Forecasting Quota Object: ' + fqs2Upsert.size());
 
-        // Process Upserts in chunks using new async threads
+        // Process Forecasting Quota Upserts in chunks using new async threads
         List<ForecastingQuota> q = new List<ForecastingQuota>();
-        if (fqs2Upsert.size() > 0) {
-            for (Integer i = 0; i < fqs2Upsert.size(); i++) {
-                q.add(fqs2Upsert[i]);
-                if (math.mod(i+1, MAX_DML_ROWS) == 0 || i == fqs2Upsert.size()-1) {
-                    asyncUpsert(JSON.serialize(q));
-                    q = new List<ForecastingQuota>();
-                }
+        for (Integer i = 0; i < fqs2Upsert.size(); i++) {
+            q.add(fqs2Upsert[i]);
+            if (math.mod(i+1, MAX_DML_ROWS) == 0 || i == fqs2Upsert.size()-1) {
+                asyncUpsertForecastingQuota(JSON.serialize(q));
+                q = new List<ForecastingQuota>();
+            }
+        }
+
+        // Process Raw Quotas OwnerHierarchy Update in chunks using new async threads
+        List<Raw_Quotas__c> rql = new List<Raw_Quotas__c>();
+        for (Integer i = 0; i < rqs2Update.size(); i++) {
+            rql.add(rqs2Update[i]);
+            if (math.mod(i+1, MAX_DML_ROWS) == 0 || i == rqs2Update.size()-1) {
+                asyncUpsertRawQuotas(JSON.serialize(rql));
+                rql = new List<Raw_Quotas__c>();
             }
         }
     }
 
     @future
-    public static void asyncUpsert(String json2Upsert) {
+    public static void asyncUpsertForecastingQuota(String json2Upsert) {
         Map<String, Id> fqXref = new Map<String, Id>();
         for (ForecastingQuota fq : [select QuotaOwnerId, StartDate, ForecastingTypeId, ProductFamily, Id from ForecastingQuota]) {
             fqXref.put(fq.QuotaOwnerId + '-' + fq.StartDate + '-' + 
@@ -223,5 +278,13 @@ public class RollupQuota implements Queueable {
 
         System.Debug('Total Records to Upsert into Forecasting Quota Object: ' + fqs2Upsert.size());
         upsert fqs2Upsert;
+    } 
+
+    @future
+    public static void asyncUpsertRawQuotas(String json2Update) {
+        List<Raw_Quotas__c> rqs2Update = (List<Raw_Quotas__c>) JSON.deserialize(json2Update, List<Raw_Quotas__c>.class);
+
+        System.Debug('Total Records to Update into Raw Quotas Object: ' + rqs2Update.size());
+        update rqs2Update;
     } 
 }
