@@ -1,6 +1,7 @@
 public class RollupQuota implements Queueable {
     private static final Integer MAX_ITERATIONS = 50;
     private static final Integer MAX_DML_ROWS = 10000;
+    private Boolean asyncRequired = false;
     
     // Run using this command:
     // ID jobID = System.enqueueJob(new RollupQuota());
@@ -239,12 +240,16 @@ public class RollupQuota implements Queueable {
 
         System.Debug('Total Records to Upsert into Forecasting Quota Object: ' + fqs2Upsert.size());
 
+        if ((fqs2Upsert.size() + rqs2Update.size()) > MAX_DML_ROWS) {
+            asyncRequired = true;
+        }
+
         // Process Forecasting Quota Upserts in chunks using new async threads
         List<ForecastingQuota> q = new List<ForecastingQuota>();
         for (Integer i = 0; i < fqs2Upsert.size(); i++) {
             q.add(fqs2Upsert[i]);
             if (math.mod(i+1, MAX_DML_ROWS) == 0 || i == fqs2Upsert.size()-1) {
-                asyncUpsertForecastingQuota(JSON.serialize(q));
+                chunkUpsertForecastingQuota(q);
                 q = new List<ForecastingQuota>();
             }
         }
@@ -254,21 +259,23 @@ public class RollupQuota implements Queueable {
         for (Integer i = 0; i < rqs2Update.size(); i++) {
             rql.add(rqs2Update[i]);
             if (math.mod(i+1, MAX_DML_ROWS) == 0 || i == rqs2Update.size()-1) {
-                asyncUpsertRawQuotas(JSON.serialize(rql));
+                if (asyncRequired) {
+                    asyncUpsertRawQuotas(JSON.serialize(rql));
+                } else {
+                    update rql;
+                }
                 rql = new List<Raw_Quotas__c>();
             }
         }
     }
 
-    @future
-    public static void asyncUpsertForecastingQuota(String json2Upsert) {
+    private void chunkUpsertForecastingQuota(List<ForecastingQuota> fqs2Upsert) {
         Map<String, Id> fqXref = new Map<String, Id>();
         for (ForecastingQuota fq : [select QuotaOwnerId, StartDate, ForecastingTypeId, ProductFamily, Id from ForecastingQuota]) {
             fqXref.put(fq.QuotaOwnerId + '-' + fq.StartDate + '-' + 
                        fq.ForecastingTypeId + '-' + fq.ProductFamily, fq.Id);
         }
 
-        List<ForecastingQuota> fqs2Upsert = (List<ForecastingQuota>) JSON.deserialize(json2Upsert, List<ForecastingQuota>.class);
         for (ForecastingQuota fq : fqs2Upsert) {
             if (fqXref.get(fq.QuotaOwnerId + '-' + fq.StartDate + '-' + fq.ForecastingTypeId + '-' + fq.ProductFamily) != null) {
                 fq.put('Id', fqXref.get(fq.QuotaOwnerId + '-' + fq.StartDate + '-' + 
@@ -276,15 +283,24 @@ public class RollupQuota implements Queueable {
             }
         }
 
-        System.Debug('Total Records to Upsert into Forecasting Quota Object: ' + fqs2Upsert.size());
-        upsert fqs2Upsert;
+        if (asyncRequired) {
+            asyncUpsertForecastingQuota(JSON.serialize(fqs2Upsert));
+        } else {
+            upsert fqs2Upsert;
+        } 
     } 
+
+    @future
+    public static void asyncUpsertForecastingQuota(String json2Upsert) {
+        List<ForecastingQuota> fqs2Upsert = (List<ForecastingQuota>) JSON.deserialize(json2Upsert, List<ForecastingQuota>.class);
+        upsert fqs2Upsert;
+    }
 
     @future
     public static void asyncUpsertRawQuotas(String json2Update) {
         List<Raw_Quotas__c> rqs2Update = (List<Raw_Quotas__c>) JSON.deserialize(json2Update, List<Raw_Quotas__c>.class);
 
-        System.Debug('Total Records to Update into Raw Quotas Object: ' + rqs2Update.size());
         update rqs2Update;
     } 
+
 }
