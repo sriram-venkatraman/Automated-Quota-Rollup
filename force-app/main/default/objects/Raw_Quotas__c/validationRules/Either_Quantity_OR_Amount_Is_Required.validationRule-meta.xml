@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Either_Quantity_OR_Amount_Is_Required</fullName>
+    <active>false</active>
+    <errorConditionFormula>Quantity__c == null  &amp;&amp; Amount__c == null</errorConditionFormula>
+    <errorMessage>Either Quantity or Amount is required</errorMessage>
+</ValidationRule>
